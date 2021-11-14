@@ -292,6 +292,144 @@ absFunc(sql_context * context, int argc, sql_value ** argv)
 }
 
 /**
+ * Implementation of prefix table generator 
+ * prefix_table_gen() is a part of Knuth-Morris-Pratt algorithm
+ * that is used in position() and replaceFunc() to find 
+ * instances of `needle` in `haystack` bin data
+ */
+inline static void
+prefix_table_gen_bin(const unsigned char *needle,
+                     const size_t         n_needle_bytes,
+                     size_t              *table)
+{
+	size_t i = 1, j = 0;
+	table[0] = 0;
+	while (i < n_needle_bytes) {
+		if (needle[i] != needle[j]) {
+			if (j == 0) {
+				table[i] = 0;
+				++i;
+			} else {
+				j = table[j - 1];
+			}
+		} else {
+			table[i] = j + 1;
+			++i;
+			++j;
+		}
+	}
+}
+
+/**
+ * Implementation of prefix table generator using UCharIterators 
+ * prefix_table_gen() is a part of Knuth-Morris-Pratt algorithm
+ * that is used in position() to find instances of `needle`  
+ * in `haystack` unicode string
+ */
+inline static void 
+prefix_table_gen_ustr(const UCharIterator *needle_begin,
+                      const unsigned char *needle_str,
+                      const size_t         n_needle_bytes, 
+                      const size_t         n_needle_chars,
+                      size_t               table[]) 
+{
+	table[0] = 0;
+	UCharIterator needle_iter;
+	UCharIterator second_iter;
+	uiter_setUTF8(&needle_iter, needle_str, n_needle_bytes);
+	uiter_setUTF8(&second_iter, needle_str, n_needle_bytes);
+	needle_iter.next(&needle_iter);
+	while (needle_iter.getIndex(&needle_iter, UITER_CURRENT) < n_needle_chars) {
+		if (needle_iter.current(&needle_iter) != second_iter.current(&second_iter)) {
+			if (second_iter.getIndex(&second_iter, UITER_CURRENT) == 0) {
+				table[needle_iter.getIndex(&needle_iter, UITER_CURRENT)] = 0;
+				needle_iter.next(&needle_iter);   
+			} else {
+				second_iter.move(&second_iter, table[second_iter.getIndex(&second_iter, UITER_CURRENT) - 1], UITER_START);
+			}
+		} else {
+			table[needle_iter.getIndex(&needle_iter, UITER_CURRENT)] = second_iter.getIndex(&second_iter, UITER_CURRENT) + 1;
+			needle_iter.next(&needle_iter);
+			second_iter.next(&second_iter);
+		}
+	}
+}
+
+/**
+ * Implementation of the KMP algorithm to find substring 
+ * in a bin array starting from given position.
+ *
+ * Requires index for starting position in `haystack`.
+ *
+ * Returns found substring position + 1 or 0 if there is no such substring.
+ */
+static int 
+kmp_bin(const unsigned char *haystack_str, 
+        const unsigned char *needle_str, 
+        const size_t         n_haystack_bytes, 
+        const size_t         n_needle_bytes,
+              size_t	     i,
+        const size_t        *prefix_table)	  
+{
+	size_t j = 0;
+	int position = 0;
+	while (i < n_haystack_bytes) {
+		if (needle_str[j] == haystack_str[i]) {
+			++i;
+			++j;
+		} else {
+			if (j == 0)
+				++i;
+			else
+				j = prefix_table[j - 1];
+		}
+		if (j >= n_needle_bytes) {
+			position = i - j + 1;
+			return position;
+		}
+	}
+	return position;
+}
+
+/**
+ * Implementation of the KMP algorithm to find substring
+ * in an array of unicode chars starting from given iterator.
+ *
+ * Requires UCharIterator [haystack_iter] of starting position 
+ * in `haystack`, iterator gets set to the first item after found
+ * `needle` or reaches the end of haystack if there is no such substring.
+ *
+ * Returns found substring position + 1 or 0 if no such substring.
+ */
+inline static int 
+kmp_ustr(struct sql_context *context, 
+         UCharIterator	    *haystack_iter, 
+         UCharIterator      *needle_iter, 
+         const size_t        n_haystack_chars, 
+         const size_t       *prefix_table)
+{
+	struct coll *coll = sqlGetFuncCollSeq(context);
+	int position = 0;
+	while (haystack_iter->getIndex(haystack_iter, UITER_CURRENT) < n_haystack_chars) {
+		if (needle_iter->current(needle_iter) == haystack_iter->current(haystack_iter)) {
+			needle_iter->next(needle_iter);
+			haystack_iter->next(haystack_iter);
+		} else {
+			if (needle_iter->getIndex(needle_iter, UITER_CURRENT) == 0) 
+				haystack_iter->next(haystack_iter);
+			else 
+				needle_iter->move(needle_iter, prefix_table[needle_iter->getIndex(needle_iter, UITER_CURRENT) - 1], UITER_START);
+		}
+		if (!needle_iter->hasNext(needle_iter)) {
+			position = haystack_iter->getIndex(haystack_iter, UITER_CURRENT) - needle_iter->getIndex(needle_iter, UITER_CURRENT) + 1;
+			haystack_iter->next(haystack_iter);
+			return position;
+		}
+	}
+	return position;
+}
+
+/**
  * Implementation of the position() function.
  *
  * position(needle, haystack) finds the first occurrence of needle
@@ -339,9 +477,10 @@ position_func(struct sql_context *context, int argc, struct Mem **argv)
 		return;
 	}
 
-	int n_needle_bytes = mem_len_unsafe(needle);
-	int n_haystack_bytes = mem_len_unsafe(haystack);
+	size_t n_needle_bytes	= mem_len_unsafe(needle);
+	size_t n_haystack_bytes = mem_len_unsafe(haystack);
 	int position = 1;
+	size_t *prefix_table = NULL;
 	if (n_needle_bytes > 0) {
 		const unsigned char *haystack_str;
 		const unsigned char *needle_str;
@@ -351,18 +490,24 @@ position_func(struct sql_context *context, int argc, struct Mem **argv)
 			assert(needle_str != NULL);
 			assert(haystack_str != NULL || n_haystack_bytes == 0);
 			/*
-			 * Naive implementation of substring
-			 * searching: matching time O(n * m).
-			 * Can be improved.
+			 * Basic version of the KMP alg
+			 * searching: matching time O(n + m), requires mem O(m).
 			 */
-			while (n_needle_bytes <= n_haystack_bytes &&
-			       memcmp(haystack_str, needle_str, n_needle_bytes) != 0) {
-				position++;
-				n_haystack_bytes--;
-				haystack_str++;
+			prefix_table = calloc(n_needle_bytes, sizeof(size_t));
+
+			if (prefix_table != NULL) {									
+				prefix_table_gen_bin(needle_str, n_needle_bytes, prefix_table);
+				position = kmp_bin(haystack_str, needle_str, n_haystack_bytes, n_needle_bytes, 0, prefix_table);
+			} else {
+				while (n_needle_bytes <= n_haystack_bytes &&
+					   memcmp(haystack_str, needle_str, n_needle_bytes) != 0) {
+					position++;
+					n_haystack_bytes--;
+					haystack_str++;
+				}	
+				if (n_needle_bytes > n_haystack_bytes)
+					position = 0;
 			}
-			if (n_needle_bytes > n_haystack_bytes)
-				position = 0;
 		} else {
 			/*
 			 * Code below handles not only simple
@@ -376,52 +521,74 @@ position_func(struct sql_context *context, int argc, struct Mem **argv)
 			 * needle char size.
 			 */
 			haystack_str = mem_as_ustr(haystack);
-			needle_str = mem_as_ustr(needle);
+			needle_str	 = mem_as_ustr(needle);
 
 			int n_needle_chars =
 				sql_utf8_char_count(needle_str, n_needle_bytes);
 			int n_haystack_chars =
 				sql_utf8_char_count(haystack_str,
-						    n_haystack_bytes);
+							n_haystack_bytes);
+
 
 			if (n_haystack_chars < n_needle_chars) {
 				position = 0;
 				goto finish;
 			}
-			/*
-			 * Comparison window is determined by
-			 * beg_offset and end_offset. beg_offset
-			 * is offset in bytes from haystack
-			 * beginning to window beginning.
-			 * end_offset is offset in bytes from
-			 * haystack beginning to window end.
-			 */
-			int end_offset = 0;
-			for (int c = 0; c < n_needle_chars; c++) {
-				SQL_UTF8_FWD_1(haystack_str, end_offset,
-					       n_haystack_bytes);
+
+			prefix_table = calloc(n_needle_chars, sizeof(size_t));
+			
+			if (prefix_table != NULL) {
+				/*
+				 * KMP algorithm with unicode support
+				 * searching: time O(n + m), mem O(m)
+				 */
+				UCharIterator needle_iter, haystack_iter;
+
+				uiter_setUTF8(	&needle_iter,	needle_str,   n_needle_bytes);
+				uiter_setUTF8(&haystack_iter, haystack_str, n_haystack_bytes);
+				
+				prefix_table_gen_ustr(&needle_iter, needle_str, n_needle_bytes, n_needle_chars, prefix_table);
+				position = kmp_ustr(context, &haystack_iter, &needle_iter, n_haystack_chars, prefix_table);
+			} else {
+				/*
+				 * Naive searching substring algorithm 
+				 * searching: time O(m * n), mem O(1)
+				 *
+				 * Comparison window is determined by
+				 * beg_offset and end_offset. beg_offset
+				 * is offset in bytes from haystack
+				 * beginning to window beginning.
+				 * end_offset is offset in bytes from
+				 * haystack beginning to window end.
+				 */
+				int end_offset = 0;
+				for (int c = 0; c < n_needle_chars; c++) {
+					SQL_UTF8_FWD_1(haystack_str, end_offset,
+							   n_haystack_bytes);
+				}
+				int beg_offset = 0;
+				struct coll *coll = sqlGetFuncCollSeq(context);
+				int c;
+				for (c = 0; c + n_needle_chars <= n_haystack_chars; c++) {
+					if (coll->cmp((const char *) haystack_str + beg_offset,
+							  end_offset - beg_offset,
+							  (const char *) needle_str,
+							  n_needle_bytes, coll) == 0)
+						goto finish;
+					position++;
+					/* Update offsets. */
+					SQL_UTF8_FWD_1(haystack_str, beg_offset,
+							   n_haystack_bytes);
+					SQL_UTF8_FWD_1(haystack_str, end_offset,
+							   n_haystack_bytes);
+				}
+				/* Needle was not found in the haystack. */
+				position = 0;
 			}
-			int beg_offset = 0;
-			struct coll *coll = sqlGetFuncCollSeq(context);
-			int c;
-			for (c = 0; c + n_needle_chars <= n_haystack_chars; c++) {
-				if (coll->cmp((const char *) haystack_str + beg_offset,
-					      end_offset - beg_offset,
-					      (const char *) needle_str,
-					      n_needle_bytes, coll) == 0)
-					goto finish;
-				position++;
-				/* Update offsets. */
-				SQL_UTF8_FWD_1(haystack_str, beg_offset,
-					       n_haystack_bytes);
-				SQL_UTF8_FWD_1(haystack_str, end_offset,
-					       n_haystack_bytes);
-			}
-			/* Needle was not found in the haystack. */
-			position = 0;
 		}
 	}
 finish:
+	free(prefix_table);
 	assert(position >= 0);
 	sql_result_uint(context, position);
 }
@@ -1280,24 +1447,31 @@ zeroblobFunc(sql_context * context, int argc, sql_value ** argv)
 }
 
 /*
- * The replace() function.  Three arguments are all strings: call
+ * The replace() function.	Three arguments are all strings: call
  * them A, B, and C. The result is also a string which is derived
  * from A by replacing every occurrence of B with C.  The match
  * must be exact.  Collating sequences are not used.
  */
 static void
-replaceFunc(sql_context * context, int argc, sql_value ** argv)
+replaceFunc(sql_context *context, int argc, sql_value **argv)
 {
-	const unsigned char *zStr;	/* The input string A */
-	const unsigned char *zPattern;	/* The pattern string B */
-	const unsigned char *zRep;	/* The replacement string C */
-	unsigned char *zOut;	/* The output */
-	int nStr;		/* Size of zStr */
-	int nPattern;		/* Size of zPattern */
-	int nRep;		/* Size of zRep */
-	i64 nOut;		/* Maximum size of zOut */
-	int loopLimit;		/* Last zStr[] that might match zPattern[] */
-	int i, j;		/* Loop counters */
+	const unsigned char *zStr;        /* The input string A                          */
+	const unsigned char *zPattern;    /* The pattern string B                        */
+	const unsigned char *zRep;        /* The replacement string C                    */
+	unsigned char *zOut;              /* The output                                  */
+	int nStr;                         /* Size of zStr                                */
+	int nPattern;                     /* Size of zPattern                            */
+	int nRep;                         /* Size of zRep                                */
+	i64 nOut;                         /* Maximum size of zOut                        */
+	int loopLimit;                    /* Last zStr[] that might match zPattern[]     */
+	int i, j;                         /* Loop counters                               */
+	int nCnt = 0;                     /* counter for number of Pattern in Str        */
+	int iStr = 0;                     /* zStr iterator for finding Patter with KMP   */
+	int nCopiedOut = 0;               /* zOut iterator for already copied mem        */
+	int nCopiedStr = 0;               /* zStr iterator for already copied mem	     */
+	int nPatternPos = 0;              /* zStr iterator for found Pattern position    */
+	size_t *prefix_table = NULL;	  /* prefix table for kmp alg                    */
+
 
 	assert(argc == 3);
 	UNUSED_PARAMETER(argc);
@@ -1309,7 +1483,7 @@ replaceFunc(sql_context * context, int argc, sql_value ** argv)
 	zPattern = mem_as_ustr(argv[1]);
 	if (zPattern == 0) {
 		assert(mem_is_null(argv[1])
-		       || sql_context_db_handle(context)->mallocFailed);
+			   || sql_context_db_handle(context)->mallocFailed);
 		return;
 	}
 	nPattern = mem_len_unsafe(argv[1]);
@@ -1331,40 +1505,89 @@ replaceFunc(sql_context * context, int argc, sql_value ** argv)
 		return;
 	}
 	loopLimit = nStr - nPattern;
-	for (i = j = 0; i <= loopLimit; i++) {
-		if (zStr[i] != zPattern[0]
-		    || memcmp(&zStr[i], zPattern, nPattern)) {
-			zOut[j++] = zStr[i];
-		} else {
-			u8 *zOld;
-			sql *db = sql_context_db_handle(context);
-			nOut += nRep - nPattern;
-			testcase(nOut - 1 == db->aLimit[SQL_LIMIT_LENGTH]);
-			testcase(nOut - 2 == db->aLimit[SQL_LIMIT_LENGTH]);
-			if (nOut - 1 > db->aLimit[SQL_LIMIT_LENGTH]) {
-				diag_set(ClientError, ER_SQL_EXECUTE, "string "\
-					 "or binary string is too big");
-				context->is_aborted = true;
-				sql_free(zOut);
-				return;
-			}
-			zOld = zOut;
-			zOut = sql_realloc64(zOut, (int)nOut);
-			if (zOut == 0) {
-				context->is_aborted = true;
-				sql_free(zOld);
-				return;
-			}
-			memcpy(&zOut[j], zRep, nRep);
-			j += nRep;
-			i += nPattern - 1;
+
+	if (prefix_table != NULL) {
+		/* 
+		 * optimized replacement logic using the KMP algorithm
+		 * requires additional O(nPattern) memory for prefix table
+		 * replacing: time O(n + m)
+		 */
+
+		/* precalculating prefix table */
+		prefix_table = calloc(nPattern, sizeof(size_t));
+		prefix_table_gen_bin(zPattern, nPattern, prefix_table);
+		/* counting the number of Pattern occurrences */
+		for (nCnt = iStr = nPatternPos = 0;;) {
+			nPatternPos = kmp_bin(zStr, zPattern, nStr, nPattern, iStr, prefix_table);
+			iStr = nPatternPos + nPattern;
+			if (nPatternPos == 0)
+				break;
+			++nCnt;
 		}
+		/* reallocationg mem for zOut */
+		nOut += (nRep - nPattern) * nCnt;
+		assert(nOut < SQL_MAX_LENGTH);
+		zOut = contextMalloc(context, (i64) nOut);
+		if (zOut == 0) {
+			return;
+		}
+		/* coping and replacing in-place */
+		for (iStr = nCopiedStr = nCopiedOut = nPatternPos = 0;;) {
+			nPatternPos = kmp_bin(zStr, zPattern, nStr, nPattern, iStr, prefix_table);
+			iStr = nPatternPos + nPattern;
+			if (nPatternPos == 0)
+				break;
+			assert(nPatternPos >= nCopiedStr);
+			memcpy(zOut + nCopiedOut, zStr + nCopiedStr, nPatternPos - nCopiedStr);
+			nCopiedOut += nPatternPos - nCopiedStr;
+			memcpy(zOut + nCopiedOut, zRep, nRep);
+			nCopiedOut += nRep;
+			nCopiedStr = nPatternPos + nPattern;
+		}
+		memcpy(zOut + nCopiedOut, zStr + nCopiedStr, nStr - nCopiedStr);
+		zOut[nOut - 1] = 0;
+		free(prefix_table);
+	} else {
+		/*
+		 * Naive replacing substring algorithm 
+		 * replacing: time O(n * m), mem O(1)
+		 * used if cannot allocate mem for prefix table
+		 */
+		for (i = j = 0; i <= loopLimit; i++) {
+			if (zStr[i] != zPattern[0]
+				|| memcmp(&zStr[i], zPattern, nPattern)) {
+				zOut[j++] = zStr[i];
+			} else {
+				u8 *zOld;
+				sql *db = sql_context_db_handle(context);
+				nOut += nRep - nPattern;
+				testcase(nOut - 1 == db->aLimit[SQL_LIMIT_LENGTH]);
+				testcase(nOut - 2 == db->aLimit[SQL_LIMIT_LENGTH]);
+				if (nOut - 1 > db->aLimit[SQL_LIMIT_LENGTH]) {
+					diag_set(ClientError, ER_SQL_EXECUTE, "string "\
+						 "or binary string is too big");
+					context->is_aborted = true;
+					sql_free(zOut);
+					return;
+				}
+				zOld = zOut;
+				zOut = sql_realloc64(zOut, (int)nOut);
+				if (zOut == 0) {
+					context->is_aborted = true;
+					sql_free(zOld);
+					return;
+				}
+				memcpy(&zOut[j], zRep, nRep);
+				j += nRep;
+				i += nPattern - 1;
+			}
+		}
+		assert(j + nStr - i + 1 == nOut);
+		memcpy(&zOut[j], &zStr[i], nStr - i);
+		j += nStr - i;
+		assert(j <= nOut);
+		zOut[j] = 0;						  
 	}
-	assert(j + nStr - i + 1 == nOut);
-	memcpy(&zOut[j], &zStr[i], nStr - i);
-	j += nStr - i;
-	assert(j <= nOut);
-	zOut[j] = 0;
 	if (context->func->def->returns == FIELD_TYPE_STRING)
 		mem_set_str_dynamic(context->pOut, (char *)zOut, j);
 	else
