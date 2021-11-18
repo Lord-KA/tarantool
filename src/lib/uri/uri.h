@@ -100,6 +100,13 @@ uri_set_destroy(struct uri_set *uri_set);
 void
 uri_set_add(struct uri_set *uri_set, const struct uri *uri);
 
+/**
+ * Remove last URI from @a uri_set and return it.
+ * Should be called only if @a uri_set is not empty.
+ */
+struct uri
+uri_set_remove(struct uri_set *uri_set);
+
 int
 uri_format(char *str, int len, const struct uri *uri, bool write_password);
 

@@ -260,6 +260,13 @@ uri_set_add(struct uri_set *uri_set, const struct uri *uri)
 	uri_set->uris[uri_set->uri_count++] = *uri;
 }
 
+struct uri
+uri_set_remove(struct uri_set *uri_set)
+{
+	assert(uri_set->uri_count > 0);
+	return uri_set->uris[--uri_set->uri_count];
+}
+
 void
 uri_set_destroy(struct uri_set *uri_set)
 {

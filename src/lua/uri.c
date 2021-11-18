@@ -250,11 +250,7 @@ uri_set_create_from_lua_table(struct uri_set *uri_set, struct lua_State *L,
 	return rc;
 }
 
-/**
- * Create @a uri_set from the value at the given valid @a idx, which should be
- * positive value.
- */
-static int
+int
 luaT_uri_set_create(struct lua_State *L, struct uri_set *uri_set, int idx)
 {
 	int rc = 0;
