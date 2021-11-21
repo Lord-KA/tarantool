@@ -1,6 +1,66 @@
 #!/usr/bin/env tarantool
 local test = require("sqltester")
-test:plan(80)
+test:plan(86)
+
+test:do_test(
+    "position-1.0.1",
+    function()
+        return test:execsql "SELECT position('ststs', 'statemenstrststs');"
+    end, {
+        -- <position-1.0.1>
+        12
+        -- </position-1.0.1>
+    })
+
+test:do_test(
+    "position-1.0.2",
+    function()
+        return test:execsql "SELECT position('abc', 'abdcdefgabcabcabc');"
+    end, {
+        -- <position-1.0.2>
+        9
+        -- </position-1.0.2>
+    })
+
+test:do_test(
+    "position-1.0.3",
+    function()
+        return test:execsql "SELECT position('aaabab', 'aabaaabab');"
+    end, {
+        -- <position-1.0.3>
+        4
+        -- </position-1.0.3>
+    })
+
+test:do_test(
+    "position-1.0.4",
+    function()
+        return test:execsql "SELECT position('abcABCabc', 'abcABCDabcABCabc');"
+    end, {
+        -- <position-1.0.4>
+        8
+        -- </position-1.0.4>
+    })
+
+test:do_test(
+    "position-1.0.5",
+    function()
+        return test:execsql "SELECT position('abc', 'abc');"
+    end, {
+        -- <position-1.0.5>
+        1
+        -- </position-1.0.5>
+    })
+
+test:do_test(
+    "position-1.0.6",
+    function()
+        return test:execsql "SELECT position('a', 'bcdefg');"
+    end, {
+        -- <position-1.0.6>
+        0
+        -- </position-1.0.6>
+    })
 
 test:do_test(
     "position-1.1",
@@ -671,45 +731,43 @@ test:do_execsql_test(
         -- </position-1.62>
     })
 
--- Tests that make use of collations.
--- A short remainder of how "unicode" and "unicode_ci" collations
--- works:
--- unicode_ci: „a“ = „A“ = „á“ = „Á“.
--- unicode: all symbols above are pairwise unequal.
+-- Basic logic tests
 
--- Collation is set in space format.
-
-test:do_execsql_test(
+test:do_execsql_test(           --TODO
     "position-1.63",
     [[
-        CREATE TABLE test1 (s1 VARCHAR(5) PRIMARY KEY COLLATE "unicode_ci");
-        INSERT INTO test1 VALUES('à');
-        SELECT POSITION('a', s1) FROM test1;
-        DELETE FROM test1;
+        SELECT position('qwerqwer', 'qwertqwertyqwerqwerty')
     ]], {
-        1
+        -- <position-1.63>
+        12
+        -- </position-1.63>
     }
 )
 
 test:do_execsql_test(
     "position-1.64",
     [[
-        INSERT INTO test1 VALUES('qwèrty');
-        SELECT POSITION('er', s1) FROM test1;
+        CREATE TABLE test1 (s1 VARCHAR(5) PRIMARY KEY COLLATE "unicode_ci");
+        INSERT INTO test1 VALUES('qwèrtyqwertyqwerty');
+        SELECT POSITION('qwertyqwerty', s1) FROM test1;
         DELETE FROM test1;
     ]], {
-        3
+        -- <position-1.64>
+        7
+        -- </position-1.64>
     }
 )
 
 test:do_execsql_test(
     "position-1.65",
     [[
-        INSERT INTO test1 VALUES('qwèrtÿ');
-        SELECT POSITION('y', s1) FROM test1;
+        INSERT INTO test1 VALUES('qwèrtÿqwerty');
+        SELECT POSITION('tÿqwer', s1) FROM test1;
         DELETE FROM test1;
     ]], {
-        6
+        -- <position-1.65>
+        5
+        -- </position-1.65>
     }
 )
 
