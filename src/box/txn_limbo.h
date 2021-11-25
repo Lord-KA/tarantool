@@ -211,14 +211,21 @@ trace_txn_limbo_lock(const char *prefix, const struct txn_limbo *limbo,
 		     const struct fiber *f, const char *caller_func,
 		     int caller_line)
 {
-	const struct latch *l = &limbo->latch;
-	const struct fiber *owner = l->owner;
+	struct latch *l = (struct latch *)&limbo->latch;
+	struct fiber *owner = l->owner;
+	struct fiber *qf;
 
 	say_info("%s: %s:%d fiber %s:%lld owner %s:%lld nested %d",
 		 prefix, caller_func, caller_line, f->name,
 		 (long long)f->fid, owner ? owner->name : "-",
 		 owner ? (long long)owner->fid : (long long)0,
 		 f == owner);
+
+	rlist_foreach_entry(qf, &l->queue, state) {
+		say_info("\t queued %s:%lld",
+			 qf->name,
+			 (long long)qf->fid);
+	}
 }
 
 static inline void
@@ -226,8 +233,9 @@ trace_txn_limbo_unlock(const char *prefix, const struct txn_limbo *limbo,
 		       const struct fiber *f, const char *caller_func,
 		       int caller_line, bool nested)
 {
-	const struct latch *l = &limbo->latch;
-	const struct fiber *owner = l->owner;
+	struct latch *l = (struct latch *)&limbo->latch;
+	struct fiber *owner = l->owner;
+	struct fiber *qf;
 
 	if (nested)
 		assert(f == owner);
@@ -237,6 +245,17 @@ trace_txn_limbo_unlock(const char *prefix, const struct txn_limbo *limbo,
 		 (long long)f->fid, owner ? owner->name : "-",
 		 owner ? (long long)owner->fid : (long long)0,
 		 nested, f == owner);
+
+	bool first = true;
+	rlist_foreach_entry(qf, &l->queue, state) {
+		if (first) {
+			first = false;
+			continue;
+		}
+		say_info("\t queued %s:%lld",
+			 qf->name,
+			 (long long)qf->fid);
+	}
 }
 
 #else /* !TRACE_TXN_LIMBO_LOCK */
