@@ -59,9 +59,7 @@ jobs:
       - uses: ./.github/actions/environment
       - name: packaging
         env:
-          RWS_URL: ${{ secrets.RWS_URL }}
-          RWS_USER: ${{ secrets.RWS_USER }}
-          RWS_PASSWORD: ${{ secrets.RWS_PASSWORD }}
+          RWS_AUTH: ${{ secrets.RWS_AUTH }}
           OS: 'fedora'
           DIST: '30'
         uses: ./.github/actions/pack_and_deploy

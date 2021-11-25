@@ -119,6 +119,9 @@ GIT_TAG=$(shell git tag --points-at HEAD)
 MAJOR_VERSION=$(word 1,$(subst ., ,$(GIT_DESCRIBE)))
 TNT_VERSION_S3_DIR=series-$(MAJOR_VERSION)
 S3_BUCKET_URL="s3://tarantool_repo/sources"
+RWS_BASE_URL=https://rws.tarantool.org
+RWS_ENDPOINT=${RWS_BASE_URL}/${REPO_S3_DIR}/${TNT_VERSION_S3_DIR}/${OS}/${DIST}
+PRODUCT_NAME=tarantool
 
 deploy_prepare:
 	rm -rf packpack
@@ -138,13 +141,20 @@ package: deploy_prepare
 	PRESERVE_ENVVARS="TARBALL_EXTRA_ARGS,${PRESERVE_ENVVARS}" ./packpack/packpack
 
 deploy:
+	if [ -z "${REPO_S3_DIR}" ]; then \
+		echo "Env variable 'REPO_S3_DIR' must be defined!"; \
+		exit 1; \
+	fi; \
+
 	CURL_CMD="curl \
-		-X PUT ${RWS_URL}/${REPO_S3_DIR}/${TNT_VERSION_S3_DIR}/${OS}/${DIST} \
-		-u $${RWS_USER}:$${RWS_PASSWORD} \
-		-F product=tarantool"; \
+		-X PUT ${RWS_ENDPOINT} \
+		-u $${RWS_AUTH} \
+		-F product=${PRODUCT_NAME}"; \
 	for f in $$(ls -I '*build*' -I '*.changes' ./build); do \
 		CURL_CMD="$${CURL_CMD} -F $$(basename $${f})=@./build/$${f}"; \
 	done; \
+	echo $${CURL_CMD}; \
+
 	$${CURL_CMD}
 
 source: deploy_prepare
