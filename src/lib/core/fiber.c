@@ -675,34 +675,40 @@ fiber_join_timeout(struct fiber *fiber, double timeout)
 void
 fiber_yield(void)
 {
-	struct cord *cord = cord();
-	struct fiber *caller = cord->fiber;
-	struct fiber *callee = caller->caller;
-	caller->caller = &cord->sched;
+	struct fiber *switch_from = fiber();
+	struct fiber *switch_to = fiber()->caller;
+	switch_from->caller = &cord()->sched;
 
 	/** By convention, these triggers must not throw. */
-	if (! rlist_empty(&caller->on_yield))
-		trigger_run(&caller->on_yield, NULL);
+	if (!rlist_empty(&switch_from->on_yield))
+		trigger_run(&switch_from->on_yield, NULL);
 
 	if (cord_is_main())
 		cord_on_yield();
 
-	clock_set_on_csw(caller);
+	clock_set_on_csw(switch_from);
 
-	assert(callee->flags & FIBER_IS_READY || callee == &cord->sched);
-	assert(! (callee->flags & FIBER_IS_DEAD));
-	assert((caller->flags & FIBER_IS_RUNNING) != 0);
-	assert((callee->flags & FIBER_IS_RUNNING) == 0);
+	/*
+	 * We either should switch to already
+	 * scheduled fiber or run the scheduler
+	 * itself.
+	 */
+	assert(switch_to->flags & FIBER_IS_READY ||
+	       switch_to == &cord()->sched);
 
-	caller->flags &= ~FIBER_IS_RUNNING;
-	cord->fiber = callee;
-	callee->flags = (callee->flags & ~FIBER_IS_READY) | FIBER_IS_RUNNING;
+	assert((switch_to->flags & FIBER_IS_DEAD) == 0);
+	assert((switch_from->flags & FIBER_IS_RUNNING) != 0);
+	assert((switch_to->flags & FIBER_IS_RUNNING) == 0);
+
+	switch_from->flags &= ~FIBER_IS_RUNNING;
+	cord()->fiber = switch_to;
+	switch_to->flags = (switch_to->flags & ~FIBER_IS_READY) | FIBER_IS_RUNNING;
 
 	ASAN_START_SWITCH_FIBER(asan_state,
-				(caller->flags & FIBER_IS_DEAD) == 0,
-				callee->stack,
-				callee->stack_size);
-	coro_transfer(&caller->ctx, &callee->ctx);
+				(switch_from->flags & FIBER_IS_DEAD) == 0,
+				switch_to->stack,
+				switch_to->stack_size);
+	coro_transfer(&switch_from->ctx, &switch_to->ctx);
 	ASAN_FINISH_SWITCH_FIBER(asan_state);
 }
 
