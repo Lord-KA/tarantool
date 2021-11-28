@@ -49,17 +49,17 @@ restart:
 	while (!stailq_empty(output) && !fiber_is_cancelled()) {
 		 msg = stailq_shift_entry(output, struct cmsg, fifo);
 
-		if (f->caller == &cord->sched && ! stailq_empty(output) &&
+		if (f->switch_next == &cord->sched && ! stailq_empty(output) &&
 		    ! rlist_empty(&pool->idle)) {
 			/*
 			 * Activate a "backup" fiber for the next
 			 * message in the queue.
 			 */
-			f->caller = rlist_shift_entry(&pool->idle,
+			f->switch_next = rlist_shift_entry(&pool->idle,
 						      struct fiber,
 						      state);
-			f->caller->flags |= FIBER_IS_READY;
-			assert(f->caller->caller == &cord->sched);
+			f->switch_next->flags |= FIBER_IS_READY;
+			assert(f->switch_next->switch_next == &cord->sched);
 		}
 		cmsg_deliver(msg);
 		/*

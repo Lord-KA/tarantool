@@ -561,7 +561,7 @@ struct fiber {
 	 * The fiber which should be scheduled when
 	 * this fiber yields.
 	 */
-	struct fiber *caller;
+	struct fiber *switch_next;
 	/** Number of context switches. */
 	int csw;
 	/** Fiber id. */

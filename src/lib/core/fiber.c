@@ -220,9 +220,9 @@ static __thread bool fiber_top_enabled = false;
  * Used to count each fiber's processing time.
  */
 static inline void
-clock_set_on_csw(struct fiber *caller)
+clock_set_on_csw(struct fiber *switch_from)
 {
-	caller->csw++;
+	switch_from->csw++;
 
 #if ENABLE_FIBER_TOP
 	if (!fiber_top_enabled)
@@ -231,7 +231,7 @@ clock_set_on_csw(struct fiber *caller)
 	uint64_t delta = cpu_stat_on_csw(&cord()->cpu_stat);
 
 	clock_stat_add_delta(&cord()->clock_stat, delta);
-	clock_stat_add_delta(&caller->clock_stat, delta);
+	clock_stat_add_delta(&switch_from->clock_stat, delta);
 #endif /* ENABLE_FIBER_TOP */
 
 }
@@ -376,68 +376,68 @@ static void
 fiber_destroy(struct cord *cord, struct fiber *f);
 
 /**
- * Transfer control to callee fiber.
+ * Transfer control to switch_to fiber.
  */
 static void
-fiber_call_impl(struct fiber *callee)
+fiber_call_impl(struct fiber *switch_to)
 {
-	struct fiber *caller = fiber();
+	struct fiber *switch_from = fiber();
 	struct cord *cord = cord();
 
 	/* Ensure we aren't switching to a fiber parked in fiber_loop */
-	assert(callee->f != NULL && callee->fid != 0);
-	assert(callee->flags & FIBER_IS_READY || callee == &cord->sched);
-	assert(! (callee->flags & FIBER_IS_DEAD));
+	assert(switch_to->f != NULL && switch_to->fid != 0);
+	assert(switch_to->flags & FIBER_IS_READY || switch_to == &cord->sched);
+	assert(! (switch_to->flags & FIBER_IS_DEAD));
 	/*
-	 * Ensure the callee was removed from cord->ready list.
-	 * If it wasn't, the callee will observe a 'spurious' wakeup
+	 * Ensure the switch_to was removed from cord->ready list.
+	 * If it wasn't, the switch_to will observe a 'spurious' wakeup
 	 * later, due to a fiber_wakeup() performed in the past.
 	 */
-	assert(rlist_empty(&callee->state));
-	assert(caller);
-	assert(caller != callee);
-	assert((caller->flags & FIBER_IS_RUNNING) != 0);
-	assert((callee->flags & FIBER_IS_RUNNING) == 0);
+	assert(rlist_empty(&switch_to->state));
+	assert(switch_from);
+	assert(switch_from != switch_to);
+	assert((switch_from->flags & FIBER_IS_RUNNING) != 0);
+	assert((switch_to->flags & FIBER_IS_RUNNING) == 0);
 
-	caller->flags &= ~FIBER_IS_RUNNING;
-	cord->fiber = callee;
-	callee->flags = (callee->flags & ~FIBER_IS_READY) | FIBER_IS_RUNNING;
+	switch_from->flags &= ~FIBER_IS_RUNNING;
+	cord->fiber = switch_to;
+	switch_to->flags = (switch_to->flags & ~FIBER_IS_READY) | FIBER_IS_RUNNING;
 
 	ASAN_START_SWITCH_FIBER(asan_state, 1,
-				callee->stack,
-				callee->stack_size);
-	coro_transfer(&caller->ctx, &callee->ctx);
+				switch_to->stack,
+				switch_to->stack_size);
+	coro_transfer(&switch_from->ctx, &switch_to->ctx);
 	ASAN_FINISH_SWITCH_FIBER(asan_state);
 }
 
 void
-fiber_call(struct fiber *callee)
+fiber_call(struct fiber *switch_to)
 {
-	struct fiber *caller = fiber();
-	assert(! (caller->flags & FIBER_IS_READY));
-	assert(rlist_empty(&callee->state));
-	assert(! (callee->flags & FIBER_IS_READY));
+	struct fiber *switch_from = fiber();
+	assert(! (switch_from->flags & FIBER_IS_READY));
+	assert(rlist_empty(&switch_to->state));
+	assert(! (switch_to->flags & FIBER_IS_READY));
 
 	/** By convention, these triggers must not throw. */
-	if (! rlist_empty(&caller->on_yield))
-		trigger_run(&caller->on_yield, NULL);
+	if (! rlist_empty(&switch_from->on_yield))
+		trigger_run(&switch_from->on_yield, NULL);
 
 	if (cord_is_main())
 		cord_on_yield();
 
-	clock_set_on_csw(caller);
-	callee->caller = caller;
-	callee->flags |= FIBER_IS_READY;
-	caller->flags |= FIBER_IS_READY;
-	fiber_call_impl(callee);
+	clock_set_on_csw(switch_from);
+	switch_to->switch_next = switch_from;
+	switch_to->flags |= FIBER_IS_READY;
+	switch_from->flags |= FIBER_IS_READY;
+	fiber_call_impl(switch_to);
 }
 
 void
-fiber_start(struct fiber *callee, ...)
+fiber_start(struct fiber *switch_to, ...)
 {
-	va_start(callee->f_data, callee);
-	fiber_call(callee);
-	va_end(callee->f_data);
+	va_start(switch_to->f_data, switch_to);
+	fiber_call(switch_to);
+	va_end(switch_to->f_data);
 }
 
 bool
@@ -676,8 +676,8 @@ void
 fiber_yield(void)
 {
 	struct fiber *switch_from = fiber();
-	struct fiber *switch_to = fiber()->caller;
-	switch_from->caller = &cord()->sched;
+	struct fiber *switch_to = fiber()->switch_next;
+	switch_from->switch_next = &cord()->sched;
 
 	/** By convention, these triggers must not throw. */
 	if (!rlist_empty(&switch_from->on_yield))
@@ -798,11 +798,11 @@ fiber_schedule_list(struct rlist *list)
 	assert(last->flags & FIBER_IS_READY);
 
 	while (! rlist_empty(list)) {
-		last->caller = rlist_shift_entry(list, struct fiber, state);
-		last = last->caller;
+		last->switch_next = rlist_shift_entry(list, struct fiber, state);
+		last = last->switch_next;
 		assert(last->flags & FIBER_IS_READY);
 	}
-	last->caller = fiber();
+	last->switch_next = fiber();
 	assert(fiber() == &cord()->sched);
 	clock_set_on_csw(fiber());
 	fiber_call_impl(first);
