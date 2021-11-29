@@ -97,9 +97,11 @@ txn_limbo_last_entry(struct txn_limbo *limbo)
 				in_queue);
 }
 
+// FIXME
 struct txn_limbo_entry *
 txn_limbo_append(struct txn_limbo *limbo, uint32_t id, struct txn *txn)
 {
+	txn_limbo_lock_ex(limbo);
 	assert(txn_has_flag(txn, TXN_WAIT_SYNC));
 	assert(limbo == &txn_limbo);
 	/*
@@ -119,12 +121,14 @@ txn_limbo_append(struct txn_limbo *limbo, uint32_t id, struct txn *txn)
 		 * it should be done right now. See in the limbo comments why.
 		 */
 		diag_set(ClientError, ER_SYNC_ROLLBACK);
+		txn_limbo_unlock_ex(limbo);
 		return NULL;
 	}
 	if (id == 0)
 		id = instance_id;
 	if  (limbo->owner_id == REPLICA_ID_NIL) {
 		diag_set(ClientError, ER_SYNC_QUEUE_UNCLAIMED);
+		txn_limbo_unlock_ex(limbo);
 		return NULL;
 	} else if (limbo->owner_id != id) {
 		if (txn_limbo_is_empty(limbo)) {
@@ -134,6 +138,7 @@ txn_limbo_append(struct txn_limbo *limbo, uint32_t id, struct txn *txn)
 			diag_set(ClientError, ER_UNCOMMITTED_FOREIGN_SYNC_TXNS,
 				 limbo->owner_id);
 		}
+		txn_limbo_unlock_ex(limbo);
 		return NULL;
 	}
 	size_t size;
@@ -141,6 +146,7 @@ txn_limbo_append(struct txn_limbo *limbo, uint32_t id, struct txn *txn)
 							typeof(*e), &size);
 	if (e == NULL) {
 		diag_set(OutOfMemory, size, "region_alloc_object", "e");
+		txn_limbo_unlock_ex(limbo);
 		return NULL;
 	}
 	e->txn = txn;
@@ -150,6 +156,7 @@ txn_limbo_append(struct txn_limbo *limbo, uint32_t id, struct txn *txn)
 	e->is_rollback = false;
 	rlist_add_tail_entry(&limbo->queue, e, in_queue);
 	limbo->len++;
+	txn_limbo_unlock_ex(limbo);
 	return e;
 }
 
@@ -248,6 +255,7 @@ txn_limbo_assign_lsn(struct txn_limbo *limbo, struct txn_limbo_entry *entry,
 static void
 txn_limbo_write_rollback(struct txn_limbo *limbo, int64_t lsn);
 
+// FIXME
 int
 txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry)
 {
@@ -485,6 +493,7 @@ txn_limbo_read_confirm(struct txn_limbo *limbo, int64_t lsn)
  * transactions following the current one and waiting for
  * confirmation must be rolled back.
  */
+// FIXME
 static void
 txn_limbo_write_rollback(struct txn_limbo *limbo, int64_t lsn)
 {
@@ -529,6 +538,7 @@ txn_limbo_read_rollback(struct txn_limbo *limbo, int64_t lsn)
 	}
 }
 
+// FIXME
 void
 txn_limbo_write_promote(struct txn_limbo *limbo, int64_t lsn, uint64_t term)
 {
@@ -858,6 +868,7 @@ txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req)
 	txn_limbo_unlock_ex(limbo);
 }
 
+// FIXME
 void
 txn_limbo_on_parameters_change(struct txn_limbo *limbo)
 {
