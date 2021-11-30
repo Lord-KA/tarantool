@@ -145,8 +145,7 @@ deploy:
 		echo "Env variable 'REPO_S3_DIR' must be defined!"; \
 		exit 1; \
 	fi; \
-
-	CURL_CMD="curl \
+	CURL_CMD="curl -LfsS \
 		-X PUT ${RWS_ENDPOINT} \
 		-u $${RWS_AUTH} \
 		-F product=${PRODUCT_NAME}"; \
@@ -154,7 +153,6 @@ deploy:
 		CURL_CMD="$${CURL_CMD} -F $$(basename $${f})=@./build/$${f}"; \
 	done; \
 	echo $${CURL_CMD}; \
-
 	$${CURL_CMD}
 
 source: deploy_prepare

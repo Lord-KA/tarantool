@@ -8,20 +8,29 @@ runs:
         # reap orphan processes. At least the following test leans
         # on it: app-tap/gh-4983-tnt-e-assert-false-hangs.test.lua.
         export PACKPACK_EXTRA_DOCKER_RUN_PARAMS='--init'
-        #
+
         # Create packages.
         make -f .gitlab.mk package
-        #
-        # Deploy packages.
-        case ${{ github.ref }} in
-          refs/tags/*-alpha*|refs/tags/*-beta*|refs/tags/*-rc*)
-            export REPO_S3_DIR=pre-release
-            ;;
-          refs/tags/*)
-            export REPO_S3_DIR=release
-            ;;
-        esac
-        if [ -n "${REPO_S3_DIR}" ]; then
-          make -f .gitlab.mk deploy
+
+        # Deploy pre-release and release packages. It's expected that tags
+        # starting with '1.10.' and '2.' can be created only for pre-releases
+        # and releases and no one will push them in other cases.
+        if ${{ startsWith(github.ref, 'refs/tags/1.10.') ||
+               startsWith(github.ref, 'refs/tags/2.') }}; then
+          case ${{ github.ref }} in
+            refs/tags/*-alpha*|refs/tags/*-beta*|refs/tags/*-rc*)
+              REPO_S3_DIR=pre-release make -f .gitlab.mk deploy
+              ;;
+
+            refs/tags/*)
+              REPO_S3_DIR=release make -f .gitlab.mk deploy
+              ;;
+          esac
+        fi
+
+        # Deploy live packages. Enabled only for 1.10 and 2.8 branches.
+        if ${{ github.ref == 'refs/heads/1.10' ||
+               github.ref == 'refs/heads/2.8' }}; then
+          REPO_S3_DIR=live make -f .gitlab.mk deploy
         fi
       shell: bash
