@@ -263,11 +263,8 @@ txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry)
 	bool cancellable = fiber_set_cancellable(false);
 
 	txn_limbo_lock_ex(limbo);
-	if (txn_limbo_entry_is_complete(entry)) {
-		txn_limbo_unlock_ex(limbo);
+	if (txn_limbo_entry_is_complete(entry))
 		goto complete;
-	}
-	txn_limbo_unlock_ex(limbo);
 
 	assert(!txn_has_flag(entry->txn, TXN_IS_DONE));
 	assert(txn_has_flag(entry->txn, TXN_WAIT_SYNC));
@@ -275,7 +272,11 @@ txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry)
 	while (true) {
 		double deadline = start_time + replication_synchro_timeout;
 		double timeout = deadline - fiber_clock();
+
+		txn_limbo_unlock_ex(limbo);
 		int rc = fiber_cond_wait_timeout(&limbo->wait_cond, timeout);
+		txn_limbo_lock_ex(limbo);
+
 		if (txn_limbo_entry_is_complete(entry))
 			goto complete;
 		if (rc != 0)
@@ -322,11 +323,14 @@ txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry)
 	}
 	fiber_set_cancellable(cancellable);
 	diag_set(ClientError, ER_SYNC_QUORUM_TIMEOUT);
+	txn_limbo_unlock_ex(limbo);
 	return -1;
 
 wait:
 	do {
+		txn_limbo_unlock_ex(limbo);
 		fiber_yield();
+		txn_limbo_lock_ex(limbo);
 	} while (!txn_limbo_entry_is_complete(entry));
 
 complete:
@@ -338,6 +342,7 @@ complete:
 	assert(rlist_empty(&entry->in_queue));
 	assert(txn_has_flag(entry->txn, TXN_IS_DONE));
 	fiber_set_cancellable(cancellable);
+	txn_limbo_unlock_ex(limbo);
 	/*
 	 * The first tx to be rolled back already performed all
 	 * the necessary cleanups for us.
@@ -542,6 +547,7 @@ txn_limbo_read_rollback(struct txn_limbo *limbo, int64_t lsn)
 void
 txn_limbo_write_promote(struct txn_limbo *limbo, int64_t lsn, uint64_t term)
 {
+	txn_limbo_lock_ex(limbo);
 	limbo->confirmed_lsn = lsn;
 	limbo->is_in_rollback = true;
 	/*
@@ -553,6 +559,7 @@ txn_limbo_write_promote(struct txn_limbo *limbo, int64_t lsn, uint64_t term)
 	(void) e;
 	txn_limbo_write_synchro(limbo, IPROTO_RAFT_PROMOTE, lsn, term);
 	limbo->is_in_rollback = false;
+	txn_limbo_unlock_ex(limbo);
 }
 
 /**
