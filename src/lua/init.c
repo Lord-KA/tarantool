@@ -101,6 +101,7 @@ bool start_loop = true;
 
 /* contents of src/lua/ files */
 extern char strict_lua[],
+	compat_lua[],
 	uuid_lua[],
 	msgpackffi_lua[],
 	fun_lua[],
@@ -253,6 +254,7 @@ extern char strict_lua[],
 static const char *lua_modules[] = {
 	/* Make it first to affect load of all other modules */
 	"strict", strict_lua,
+	"compat", compat_lua,
 	"fun", fun_lua,
 	"debug", debug_lua,
 	"tarantool", init_lua,
