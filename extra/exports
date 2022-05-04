@@ -505,3 +505,5 @@ uri_set_destroy
 uuid_nil
 uuid_unpack
 _say
+msgpuck_json_esc_slash_toggle
+json_esc_slash_toggle

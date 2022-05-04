@@ -53,34 +53,67 @@ extern uint32_t CTID_DECIMAL;
 
 /* {{{ luaL_serializer manipulations */
 
-#define OPTION(type, name, defvalue) { #name, \
-	offsetof(struct luaL_serializer, name), type, defvalue}
+#define ALL_OPTIONS_	\
+	OPTION(LUA_TBOOLEAN, encode_sparse_convert, 1)   	\
+	OPTION(LUA_TNUMBER,  encode_sparse_ratio, 2)	  	\
+	OPTION(LUA_TNUMBER,  encode_sparse_safe, 10)		\
+	OPTION(LUA_TNUMBER,  encode_max_depth, 128)		\
+	OPTION(LUA_TBOOLEAN, encode_deep_as_nil, 0)		\
+	OPTION(LUA_TBOOLEAN, encode_invalid_numbers, 1)		\
+	OPTION(LUA_TNUMBER,  encode_number_precision, 14)	\
+	OPTION(LUA_TBOOLEAN, encode_load_metatables, 1)		\
+	OPTION(LUA_TBOOLEAN, encode_use_tostring, 0)		\
+	OPTION(LUA_TBOOLEAN, encode_invalid_as_nil, 0)		\
+	OPTION(LUA_TBOOLEAN, encode_error_as_ext, 1)		\
+	OPTION(LUA_TBOOLEAN, encode_esc_slash, 0)		\
+	OPTION(LUA_TBOOLEAN, decode_invalid_numbers, 1)		\
+	OPTION(LUA_TBOOLEAN, decode_save_metatables, 1)		\
+	OPTION(LUA_TNUMBER,  decode_max_depth, 128)
+
 /**
  * Configuration options for serializers
  * @sa struct luaL_serializer
  */
-static struct {
+struct OPTION_T {
 	const char *name;
 	size_t offset; /* offset in structure */
 	int type;
 	int defvalue;
-} OPTIONS[] = {
-	OPTION(LUA_TBOOLEAN, encode_sparse_convert, 1),
-	OPTION(LUA_TNUMBER,  encode_sparse_ratio, 2),
-	OPTION(LUA_TNUMBER,  encode_sparse_safe, 10),
-	OPTION(LUA_TNUMBER,  encode_max_depth, 128),
-	OPTION(LUA_TBOOLEAN, encode_deep_as_nil, 0),
-	OPTION(LUA_TBOOLEAN, encode_invalid_numbers, 1),
-	OPTION(LUA_TNUMBER,  encode_number_precision, 14),
-	OPTION(LUA_TBOOLEAN, encode_load_metatables, 1),
-	OPTION(LUA_TBOOLEAN, encode_use_tostring, 0),
-	OPTION(LUA_TBOOLEAN, encode_invalid_as_nil, 0),
-	OPTION(LUA_TBOOLEAN, encode_error_as_ext, 1),
-	OPTION(LUA_TBOOLEAN, decode_invalid_numbers, 1),
-	OPTION(LUA_TBOOLEAN, decode_save_metatables, 1),
-	OPTION(LUA_TNUMBER,  decode_max_depth, 128),
-	{ NULL, 0, 0, 0},
 };
+
+/** {{{ WARNING: proceed with caution, preprocessor magic
+ *
+ * This is required for getting each option without knowing its position in
+ * OPTIONS. Needed for gh-6200, to set up default values for new serializers
+ * from tarantool.compat (gh-7000).
+ */
+
+#define OPTION(type, name, defvalue) struct OPTION_T name;
+
+static union {
+	struct CONTENTS_T_ {
+		ALL_OPTIONS_
+	} CONTENTS_;
+
+	struct OPTION_T array[sizeof(struct CONTENTS_T_) / sizeof(struct OPTION_T) + 1];
+
+#undef OPTION
+#define OPTION(type, name, defvalue) { #name, \
+	offsetof(struct luaL_serializer, name), type, defvalue},
+
+} OPTIONS_U_ = {.array = { ALL_OPTIONS_ {NULL, 0, 0, 0} }};
+
+#undef OPTION
+
+static struct OPTION_T *OPTIONS = OPTIONS_U_.array;
+/** }}} preprocessor magic */
+
+/** toggler for json.encode behavior change trought tarantool.compat (gh-6200) */
+void
+json_esc_slash_toggle(bool value)
+{
+	OPTIONS_U_.CONTENTS_.encode_esc_slash.defvalue = value;
+}
 
 void
 luaL_serializer_create(struct luaL_serializer *cfg)

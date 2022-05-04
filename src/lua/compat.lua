@@ -11,10 +11,30 @@ local options_format = {
 }
 
 -- Contains static options descriptions in format specified by `options_format`.
-local options = { }
+local options = {
+    json_escape_forward_slash = {
+        old = true,
+        new = false,
+        default = 'old',
+        frozen = false,
+        brief = "json escapes '/' during encode",
+        doc  = "https://github.com/tarantool/tarantool/wiki/compat_json_escape_forward_slash"
+    },
+}
 
 -- Contains postaction functions for each unfrozen option from `options`.
-local postaction = { }
+local postaction = {
+    json_escape_forward_slash = function(value)
+        require('json').cfg{encode_esc_slash = value}
+        local ffi = require('ffi')
+        ffi.cdef[[
+                extern void json_esc_slash_toggle(bool value);
+                extern void msgpuck_json_esc_slash_toggle(bool value);
+        ]]
+        ffi.C.json_esc_slash_toggle(value);
+        ffi.C.msgpuck_json_esc_slash_toggle(value);
+    end,
+}
 
 -- Contains dynamic values: current state of an option and is it selected.
 local cfg = { }
