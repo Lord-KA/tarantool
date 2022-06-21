@@ -10,6 +10,13 @@ local options_format = {
     doc     = 'string'
 }
 
+local JSON_ESCAPE_BRIEF = [[
+Whether to escape the forward slash symbol '/' using a backslash in a json.encode()
+result. The old and the new behaviour produce a result, which is compatible
+with the JSON specification. However most of other JSON encoders don't escape
+the forward slash, so we consider the new behaviour as more safe one.
+]]
+
 -- Contains static options descriptions in format specified by `options_format`.
 local options = {
     json_escape_forward_slash = {
@@ -17,7 +24,7 @@ local options = {
         new = false,
         default = 'old',
         frozen = false,
-        brief = "json escapes '/' during encode",
+        brief = JSON_ESCAPE_BRIEF,
         doc  = "https://github.com/tarantool/tarantool/wiki/compat_json_escape_forward_slash"
     },
 }
@@ -29,10 +36,9 @@ local postaction = {
         local ffi = require('ffi')
         ffi.cdef[[
                 extern void json_esc_slash_toggle(bool value);
-                extern void msgpuck_json_esc_slash_toggle(bool value);
         ]]
         ffi.C.json_esc_slash_toggle(value);
-        ffi.C.msgpuck_json_esc_slash_toggle(value);
+        tarantool_lua_msgpuck_esc_slash_toggle(value);
     end,
 }
 
