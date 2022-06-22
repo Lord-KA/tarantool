@@ -109,10 +109,17 @@ static struct OPTION_T *OPTIONS = OPTIONS_U_.array;
 /** }}} preprocessor magic */
 
 /** toggler for json.encode behavior change trought tarantool.compat (gh-6200) */
-void
-json_esc_slash_toggle(bool value)
+int
+json_esc_slash_toggle(struct lua_State *L)
 {
+	int top = lua_gettop(L);
+	assert(lua_type(L, top) == LUA_TBOOLEAN);
+	bool value = lua_toboolean(L, top);
+	lua_pop(L, 1);
+
 	OPTIONS_U_.CONTENTS_.encode_esc_slash.defvalue = value;
+	lua_pushnumber(L, 0);
+	return 1;
 }
 
 void

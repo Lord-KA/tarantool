@@ -34,15 +34,22 @@
 static const char escaped_slash[] = "\\/";
 
 int
-tarantool_lua_msgpuck_esc_slash_toggle(struct lua_State *L)
+msgpuck_esc_slash_toggle(struct lua_State *L)
 {
 	int top = lua_gettop(L);
 	assert(lua_type(L, top) == LUA_TBOOLEAN);
-	bool val = lia_toboolean(L, top);
+	bool val = lua_toboolean(L, top);
 	lua_pop(L, 1);
 	if (val)
 		mp_char2escape['/'] = escaped_slash;
 	else
 		mp_char2escape['/'] = NULL;
+	lua_pushnumber(L, 0);
+	return 1;
+}
+
+int tarantool_lua_compat_init(struct lua_State *L)
+{
+	luaL_register(L, "compat_internals", compat_methods);
 	return 1;
 }

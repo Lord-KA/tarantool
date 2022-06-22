@@ -1,6 +1,8 @@
 -- compat.lua -- internal module intended to solve compatibility problems in
 -- different parts of Tarantool. Introduced in gh-7000, see also gh-6912.
 
+local intenals = require('compat_internals')
+
 local options_format = {
     old     = 'boolean',
     new     = 'boolean',
@@ -33,12 +35,8 @@ local options = {
 local postaction = {
     json_escape_forward_slash = function(value)
         require('json').cfg{encode_esc_slash = value}
-        local ffi = require('ffi')
-        ffi.cdef[[
-                extern void json_esc_slash_toggle(bool value);
-        ]]
-        ffi.C.json_esc_slash_toggle(value);
-        tarantool_lua_msgpuck_esc_slash_toggle(value);
+        intenals.json_esc_slash_toggle(value);
+        intenals.msgpuck_esc_slash_toggle(value);
     end,
 }
 

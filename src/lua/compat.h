@@ -30,6 +30,8 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include "lua/utils.h"
+
 
 #if defined(__cplusplus)
 extern "C" {
@@ -38,11 +40,22 @@ extern "C" {
 struct lua_State;
 
 int
-tarantool_lua_msgpuck_esc_slash_toggle(struct lua_State *L);
+msgpuck_esc_slash_toggle(struct lua_State *L);
+
+int
+json_esc_slash_toggle(struct lua_State *L);
+
+
+static const struct luaL_Reg compat_methods[] = {
+	{"msgpuck_esc_slash_toggle", msgpuck_esc_slash_toggle},
+	{"json_esc_slash_toggle", json_esc_slash_toggle},
+	{NULL, NULL},
+};
+
+int tarantool_lua_compat_init(struct lua_State *L);
 
 #if defined(__cplusplus)
 }
 #endif
 
 #endif /* INCLUDES_TARANTOOL_LUA_COMPAT_H */
-

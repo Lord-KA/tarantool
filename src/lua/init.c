@@ -66,6 +66,7 @@
 #include "lua/swim.h"
 #include "lua/decimal.h"
 #include "lua/uri.h"
+#include "lua/compat.h"
 #include "digest.h"
 #include "errinj.h"
 
@@ -739,6 +740,7 @@ tarantool_lua_init(const char *tarantool_bin, int argc, char **argv)
 	tarantool_lua_serializer_init(L);
 	tarantool_lua_swim_init(L);
 	tarantool_lua_decimal_init(L);
+	tarantool_lua_compat_init(L);
 #ifdef ENABLE_BACKTRACE
 	luaM_sysprof_set_backtracer(fiber_backtracer);
 #endif

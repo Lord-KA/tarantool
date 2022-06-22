@@ -505,5 +505,3 @@ uri_set_destroy
 uuid_nil
 uuid_unpack
 _say
-tarantool_lua_msgpuck_esc_slash_toggle
-json_esc_slash_toggle
