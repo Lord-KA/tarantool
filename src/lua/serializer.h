@@ -244,6 +244,84 @@ struct luaL_field {
 };
 
 /**
+ * Traverse the table by @idx index and collect serialization
+ * results for subtables.
+ *
+ * The structure of the cache table is following:
+ *
+ * +------------+----------------------+
+ * | key        | value                |
+ * +------------+----------------------+
+ * | table addr | serialization result |
+ * +------------+----------------------+
+ * | ...        | ...                  |
+ * +------------+----------------------+
+ *
+ * Processed table must be on the top of the Lua stack before
+ * call.
+ *
+ * @param L Lua stack.
+ * @param cache_index Index of table with serialization results.
+ */
+int
+luaL_pre_serialize(struct lua_State *L, int cache_index);
+
+/**
+ * Find references and self-references to tables. Keep references
+ * in cache table with @a anchortable_index.
+ *
+ * The structure of the cache table is following:
+ *
+ * +------------+-------+
+ * | key        | value |
+ * +------------+-------+
+ * | table addr | false |
+ * +------------+-------+
+ * | table addr | true  |
+ * +------------+-------+
+ * | ...        | ...   |
+ * +------------+-------+
+ *
+ * "value" is false if table is faced once in serialized
+ * structure."value" is true if table is faced twice or more
+ * (self-referenced).
+ *
+ * Processed table must be on the top of the Lua stack before
+ * call.
+ *
+ * @param L Lua stack.
+ * @param anchortable_index Index of anchor table on stack.
+ */
+void
+luaL_find_references(struct lua_State *L, int anchortable_index);
+
+enum get_anchor_ret_code
+{
+	/* Table has no references. */
+	GET_ANCHOR_NOT_REFERNCED = 0,
+	/* Table is self-referenced, but isn't named yet. */
+	GET_ANCHOR_NOT_NAMED,
+	/* Table is self-referenced and alredy named. */
+	GET_ANCHOR_NAMED,
+};
+
+/**
+ * Generate aliases and anchor numbers for self-referenced tables.
+ *
+ * Processed table must be on the top of the Lua stack before
+ * call.
+ *
+ * @param L Lua stack.
+ * @param anchortable_index Index of anchor table on stack.
+ * @param[out] anchor_number Ptr to the number anchors in a
+               structure being under dumping.
+ * @param[out] anchor Ptr to anchor string.
+ */
+int
+luaL_get_anchor(struct lua_State *L, int anchortable_index,
+		unsigned int *anchor_number, const char **anchor);
+
+/**
  * @brief Convert a value from the Lua stack to a lua_field structure.
  * This function is designed for use with Lua bindings and data
  * serialization functions (YAML, MsgPack, JSON, etc.).
@@ -277,6 +355,7 @@ struct luaL_field {
  *
  * @param L stack
  * @param cfg configuration
+ * @param cache_index index of table with serialization results
  * @param index stack index
  * @param field conversion result
  *
@@ -284,8 +363,8 @@ struct luaL_field {
  * @retval -1 Error.
  */
 int
-luaL_tofield(struct lua_State *L, struct luaL_serializer *cfg, int index,
-	     struct luaL_field *field);
+luaL_tofield(struct lua_State *L, struct luaL_serializer *cfg, int cache_index,
+	     int index, struct luaL_field *field);
 
 /**
  * @brief Try to convert userdata/cdata values using defined conversion logic.
@@ -293,18 +372,20 @@ luaL_tofield(struct lua_State *L, struct luaL_serializer *cfg, int index,
  *
  * @param L stack
  * @param cfg configuration
+ * @param cache_index index of table with serialization results
  * @param idx stack index
  * @param field conversion result
  */
 void
-luaL_convertfield(struct lua_State *L, struct luaL_serializer *cfg, int idx,
-		  struct luaL_field *field);
+luaL_convertfield(struct lua_State *L, struct luaL_serializer *cfg,
+		  int cache_index, int idx, struct luaL_field *field);
 
 /**
  * @brief A wrapper for luaL_tofield() and luaL_convertfield() that
  * tries to convert value or raise an error.
  * @param L stack
  * @param cfg configuration
+ * @param cache_index index of table with serialization results
  * @param idx stack index
  * @param field conversion result
  * @sa lua_tofield()
@@ -320,14 +401,14 @@ luaL_convertfield(struct lua_State *L, struct luaL_serializer *cfg, int idx,
  * (tostring) -> (nil) -> exception
  */
 static inline void
-luaL_checkfield(struct lua_State *L, struct luaL_serializer *cfg, int idx,
-		struct luaL_field *field)
+luaL_checkfield(struct lua_State *L, struct luaL_serializer *cfg,
+		int cache_index, int idx, struct luaL_field *field)
 {
-	if (luaL_tofield(L, cfg, idx, field) < 0)
+	if (luaL_tofield(L, cfg, cache_index, idx, field) < 0)
 		luaT_error(L);
 	if (field->type != MP_EXT || field->ext_type != MP_UNKNOWN_EXTENSION)
 		return;
-	luaL_convertfield(L, cfg, idx, field);
+	luaL_convertfield(L, cfg, cache_index, idx, field);
 }
 
 /* }}} Fill luaL_field */

@@ -82,6 +82,7 @@ struct lua_yaml_dumper {
    struct luaL_serializer *cfg;
    int anchortable_index;
    unsigned int anchor_number;
+   int cache_index;
    yaml_emitter_t emitter;
    char error;
    /** Global tag to label the result document by. */
@@ -624,7 +625,7 @@ static int dump_node(struct lua_yaml_dumper *dumper)
    (void) unused;
 
    int top = lua_gettop(dumper->L);
-   luaL_checkfield(dumper->L, dumper->cfg, top, &field);
+   luaL_checkfield(dumper->L, dumper->cfg, dumper->cache_index, top, &field);
    switch(field.type) {
    case MP_UINT:
       snprintf(buf, sizeof(buf) - 1, "%" PRIu64, field.ival);
@@ -840,7 +841,11 @@ lua_yaml_encode(lua_State *L, struct luaL_serializer *serializer,
    lua_newtable(L);
    dumper.anchortable_index = lua_gettop(L);
    dumper.anchor_number = 0;
+   lua_newtable(L);
+   dumper.cache_index = lua_gettop(L);
    lua_pushvalue(L, 1); /* push copy of arg we're processing */
+   if (luaL_pre_serialize(dumper.L, dumper.cache_index) != 0)
+         goto error;
    find_references(&dumper);
    dump_document(&dumper);
    if (dumper.error)

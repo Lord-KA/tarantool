@@ -332,7 +332,7 @@ lua_sql_bind_decode(struct lua_State *L, struct sql_bind *bind, int idx, int i)
 		bind->name = NULL;
 		bind->name_len = 0;
 	}
-	if (luaL_tofield(L, luaL_msgpack_default, -1, &field) < 0)
+	if (luaL_tofield(L, luaL_msgpack_default, 0, -1, &field) < 0)
 		return -1;
 	bind->type = field.type;
 	bind->ext_type = field.ext_type;

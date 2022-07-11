@@ -3561,7 +3561,7 @@ port_lua_get_vdbemem(struct port *base, uint32_t *size)
 	for (int i = 0; i < argc; i++) {
 		struct luaL_field field;
 		int index = -1 - i;
-		if (luaL_tofield(L, luaL_msgpack_default, index, &field) < 0)
+		if (luaL_tofield(L, luaL_msgpack_default, 0, index, &field) < 0)
 			goto error;
 		mem_clear(&val[i]);
 		switch (field.type) {
