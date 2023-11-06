@@ -637,6 +637,7 @@ print_help(FILE *stream, const char *program)
 		" -h, --help             display this help and exit\n"
 		" --help-env-list        display env variables taken into account\n"
 		" --force-recovery       enable force-recovery\n"
+		" --integrity-hashes     enable integrity control (Enterprise Edition)\n"
 		" -v, --version          print program version and exit\n"
 		" -c, --config PATH      set a path to yaml config file as 'PATH'\n"
 		" -n, --name INSTANCE    set an instance name as 'INSTANCE'\n"
@@ -702,6 +703,7 @@ main(int argc, char **argv)
 		 * above for details of the approach.
 		 */
 		{"failover", no_argument, 0, 'O'},
+		{"integrity-hashes", required_argument, 0, 'I'},
 		{NULL, 0, 0, 0},
 	};
 	static const char *opts = "+hVvb::ij:e:l:dc:n:";
@@ -733,6 +735,10 @@ main(int argc, char **argv)
 			return 0;
 		case 'E':
 			opt_mask |= O_HELP_ENV_LIST;
+			break;
+		case 'I':
+			opt_mask |= O_INTEGRITY;
+			instance.hashes = (const char *)xstrdup(optarg);
 			break;
 		case 'F':
 			box_is_force_recovery = true;

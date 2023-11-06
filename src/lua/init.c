@@ -74,6 +74,7 @@
 #include "lua/xml.h"
 #include "lua/etcd_client.h"
 #include "lua/compress.h"
+#include "lua/integrity.h"
 #include "digest.h"
 #include "errinj.h"
 
@@ -136,6 +137,7 @@ extern char minifio_lua[],
 	utils_lua[],
 	argparse_lua[],
 	iconv_lua[],
+	integrity_lua[],
 	/* jit.* library */
 	jit_vmdef_lua[],
 	jit_bc_lua[],
@@ -307,6 +309,7 @@ static const char *lua_modules[] = {
 	"http.client", httpc_lua,
 	"iconv", iconv_lua,
 	"swim", swim_lua,
+	"integrity", integrity_lua,
 	COMPRESS_LUA_MODULES
 	/* jit.* library */
 	"jit.vmdef", jit_vmdef_lua,
@@ -962,6 +965,7 @@ tarantool_lua_init(const char *tarantool_bin, const char *script, int argc,
 	tarantool_lua_swim_init(L);
 	tarantool_lua_decimal_init(L);
 	tarantool_lua_compress_init(L);
+	tarantool_lua_integrity_init(L);
 #ifdef ENABLE_BACKTRACE
 	luaM_sysprof_set_backtracer(fiber_backtracer);
 #endif
@@ -1105,6 +1109,7 @@ run_script_f(va_list ap)
 	bool debugging = opt_mask & O_DEBUGGING;
 	bool help_env_list = opt_mask & O_HELP_ENV_LIST;
 	bool failover = opt_mask & O_FAILOVER;
+	bool integrity = opt_mask & O_INTEGRITY;
 	/*
 	 * An error is returned via an external diag. A caller
 	 * can't use fiber_join(), because the script can call
@@ -1214,6 +1219,23 @@ run_script_f(va_list ap)
 			goto error;
 		lua_settop(L, 0);
 	}
+
+	/* Start integrity verification. */
+	if (integrity) {
+		/*
+		 * local integrity = require('integrity')
+		 * integrity.enable_integrity_check(path_to_hashes)
+		 */
+		if (lua_require_lib(L, "integrity") != 0)
+			goto error;
+                lua_getfield(L, -1, "enable_integrity_check");
+
+                lua_pushstring(L, instance->hashes);
+                if (luaT_call(L, 1, 0) != 0)
+			goto error;
+
+		lua_settop(L, 0);
+        }
 
 	/* Start the failover script. */
 	if (failover) {

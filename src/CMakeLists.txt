@@ -72,6 +72,7 @@ lua_source(lua_sources lua/print.lua print_lua)
 lua_source(lua_sources lua/pairs.lua pairs_lua)
 lua_source(lua_sources lua/compat.lua compat_lua)
 lua_source(lua_sources lua/varbinary.lua varbinary_lua)
+lua_source(lua_sources lua/integrity.lua integrity_lua)
 if (ENABLE_COMPRESS_MODULE)
     lua_source(lua_sources ${COMPRESS_MODULE_LUA_SOURCE} compress_lua)
 endif()
@@ -223,6 +224,7 @@ set (server_sources
      lua/builtin_modcache.c
      lua/tweaks.c
      lua/xml.c
+     lua/integrity.c
      ${lua_sources}
      ${PROJECT_SOURCE_DIR}/third_party/lua-yaml/lyaml.cc
      ${PROJECT_SOURCE_DIR}/third_party/lua-cjson/lua_cjson.c
